@@ -19,6 +19,34 @@ logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 logger = logging.getLogger()
 
 
+def _clean_state_dict_keys(state_dict, replace_kw=("backbone.",)):
+    cleaned = {}
+    for key, value in state_dict.items():
+        new_key = key
+        for kw in replace_kw:
+            new_key = new_key.replace(kw, "")
+        cleaned[new_key] = value
+    return cleaned
+
+
+def _filter_state_dict_for_model(state_dict, model):
+    """Keep only keys that exist in the target model with matching tensor shape."""
+    model_state = model.state_dict()
+    filtered = {}
+    skipped = []
+    for key, value in state_dict.items():
+        if key not in model_state:
+            skipped.append(key)
+            continue
+        if hasattr(value, "shape") and hasattr(model_state[key], "shape") and value.shape != model_state[key].shape:
+            skipped.append(key)
+            continue
+        filtered[key] = value
+    if skipped:
+        logger.info(f"Skipped {len(skipped)} incompatible pretrained keys; first few: {skipped[:8]}")
+    return filtered
+
+
 def load_pretrained(
     r_path,
     encoder=None,
@@ -32,28 +60,31 @@ def load_pretrained(
     logger.info(f"Loading pretrained model from {r_path}")
     checkpoint = robust_checkpoint_loader(r_path, map_location=torch.device("cpu"))
 
-    epoch = checkpoint["epoch"]
+    epoch = checkpoint.get("epoch", 0)
 
     if load_encoder:
         # -- loading encoder
         pretrained_dict = checkpoint[context_encoder_key]
-        pretrained_dict = {k.replace("backbone.", ""): v for k, v in pretrained_dict.items()}
+        pretrained_dict = _clean_state_dict_keys(pretrained_dict)
+        pretrained_dict = _filter_state_dict_for_model(pretrained_dict, encoder)
         msg = encoder.load_state_dict(pretrained_dict, strict=False)
         logger.info(f"loaded pretrained encoder from epoch {epoch} with msg: {msg}")
 
     if load_predictor:
         # -- loading predictor
         pretrained_dict = checkpoint["predictor"]
-        pretrained_dict = {k.replace("backbone.", ""): v for k, v in pretrained_dict.items()}
+        pretrained_dict = _clean_state_dict_keys(pretrained_dict)
+        pretrained_dict = _filter_state_dict_for_model(pretrained_dict, predictor)
         msg = predictor.load_state_dict(pretrained_dict, strict=False)
         logger.info(f"loaded pretrained predictor from epoch {epoch} with msg: {msg}")
 
     # -- loading target_encoder
     if load_encoder:
         if target_encoder is not None:
-            print(list(checkpoint.keys()))
+            logger.info(f"checkpoint keys: {list(checkpoint.keys())}")
             pretrained_dict = checkpoint[target_encoder_key]
-            pretrained_dict = {k.replace("backbone.", ""): v for k, v in pretrained_dict.items()}
+            pretrained_dict = _clean_state_dict_keys(pretrained_dict)
+            pretrained_dict = _filter_state_dict_for_model(pretrained_dict, target_encoder)
             msg = target_encoder.load_state_dict(pretrained_dict, strict=False)
             logger.info(f"loaded pretrained target encoder from epoch {epoch} with msg: {msg}")
 

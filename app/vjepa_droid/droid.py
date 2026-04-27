@@ -40,16 +40,31 @@ def init_data(
     transform=None,
     camera_frame=False,
     tubelet_size=2,
+    dataset_format="droid",
+    libero_camera_key="agentview_rgb",
+    libero_frame_stride=1,
 ):
-    dataset = DROIDVideoDataset(
-        data_path=data_path,
-        frames_per_clip=frames_per_clip,
-        transform=transform,
-        fps=fps,
-        camera_views=camera_views,
-        frameskip=tubelet_size,
-        camera_frame=camera_frame,
-    )
+    if dataset_format.lower() == "libero":
+        from app.vjepa_droid.libero import LIBEROHDF5Dataset
+
+        dataset = LIBEROHDF5Dataset(
+            data_path=data_path,
+            frames_per_clip=frames_per_clip,
+            frame_stride=libero_frame_stride,
+            camera_key=libero_camera_key,
+            transform=transform,
+            camera_frame=camera_frame,
+        )
+    else:
+        dataset = DROIDVideoDataset(
+            data_path=data_path,
+            frames_per_clip=frames_per_clip,
+            transform=transform,
+            fps=fps,
+            camera_views=camera_views,
+            frameskip=tubelet_size,
+            camera_frame=camera_frame,
+        )
 
     dist_sampler = torch.utils.data.distributed.DistributedSampler(
         dataset, num_replicas=world_size, rank=rank, shuffle=True

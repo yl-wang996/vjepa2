@@ -1,0 +1,73 @@
+app: vjepa_droid
+cpus_per_task: 4
+folder: outputs/train/libero-vjepa-ac-debug
+mem_per_gpu: 220G
+nodes: 1
+tasks_per_node: 1
+data:
+  dataset_format: libero
+  batch_size: 1
+  crop_size: 256
+  datasets:
+    # CSV file, each line is a LIBERO .hdf5 file path.
+    # Optional second column can pin a specific demo key, e.g. `/path/file.hdf5 demo_0`.
+    - data/libero/libero_spatial_h5_paths.csv
+  dataset_fpcs:
+  - 8
+  fps: 4
+  libero_camera_key: agentview_rgb
+  libero_frame_stride: 1
+  num_workers: 0
+  patch_size: 16
+  pin_mem: false
+  stereo_view: false
+  tubelet_size: 2
+data_aug:
+  auto_augment: false
+  horizontal_flip: false
+  motion_shift: false
+  random_resize_aspect_ratio:
+  - 1.0
+  - 1.0
+  random_resize_scale:
+  - 1.0
+  - 1.0
+  reprob: 0.0
+loss:
+  auto_steps: 2
+  loss_exp: 1.0
+  normalize_reps: true
+  reg_coeff: 0.0
+meta:
+  dtype: bfloat16
+  eval_freq: 100
+  resume_checkpoint: null
+  load_predictor: false
+  # This keeps the official V-JEPA 2-AC / ViT-g setup.
+  # It is useful as a config template but still requires large-GPU training.
+  pretrain_checkpoint: checkpoints/vjepa2-ac-vitg.pt
+  context_encoder_key: target_encoder
+  target_encoder_key: target_encoder
+  save_every_freq: 1
+  seed: 239
+  use_sdpa: true
+model:
+  model_name: vit_giant_xformers
+  pred_depth: 24
+  pred_embed_dim: 1024
+  pred_is_frame_causal: true
+  pred_num_heads: 16
+  uniform_power: true
+  use_activation_checkpointing: true
+  use_extrinsics: false
+  use_rope: true
+optimization:
+  anneal: 1
+  epochs: 1
+  final_lr: 0.0
+  final_weight_decay: 0.04
+  ipe: 1
+  lr: 0.0001
+  start_lr: 0.00001
+  warmup: 1
+  weight_decay: 0.04

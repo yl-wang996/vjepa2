@@ -18,6 +18,12 @@ run_pretrain.py
 
 *.egg-info/
 *.ipynb_checkpoints/
+.venv/
+.uv-cache/
+checkpoints/
+outputs/
+data/
+docs/papers/*.pdf
 
 traces/
 third_party/*
