@@ -106,6 +106,7 @@ dummy zeros [T, 6]                   -> extrinsics
 
 - 默认 `libero_camera_key` 是 `agentview_rgb`。
 - 如果使用 wrist camera，可以改为 `eye_in_hand_rgb`。
+- 当前 loader 会对 LIBERO 原始 RGB 帧做一次垂直翻转（`flipud`），使训练和可视化方向与预期一致。
 - LIBERO 通常没有 DROID-style camera extrinsics，所以 loader 返回全零 extrinsics。
 - 训练配置中建议保持 `model.use_extrinsics: false`。
 
@@ -314,6 +315,33 @@ outputs/train/libero-vjepa21-vitb-ac-debug/e0.pt
 outputs/train/libero-vjepa21-vitb-ac-debug/log_r0.csv
 outputs/train/libero-vjepa21-vitb-ac-debug/params-pretrain.yaml
 ```
+
+## 已跑通的离线验证和 Energy Landscape
+
+训练 smoke test 之后，可以用验证脚本读取 `latest.pt`，在 LIBERO demo 上生成一段 clip 可视化和 `dx/dz` action energy landscape：
+
+```bash
+PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
+.venv/bin/python scripts/libero_vitb_ac_validate.py \
+  --config configs/train/vitb16/libero-256px-8f-debug.yaml \
+  --checkpoint outputs/train/libero-vjepa21-vitb-ac-debug/latest.pt \
+  --output-dir outputs/validation/libero-vjepa21-vitb-ac-debug \
+  --device cuda:0 \
+  --sample-index 0 \
+  --seed 0 \
+  --energy-nsamples 21 \
+  --energy-grid-size 0.05
+```
+
+产物：
+
+```text
+outputs/validation/libero-vjepa21-vitb-ac-debug/libero_clip_frames.png
+outputs/validation/libero-vjepa21-vitb-ac-debug/energy_landscape_dx_dz.png
+outputs/validation/libero-vjepa21-vitb-ac-debug/metrics.json
+```
+
+当前 debug checkpoint 只训练了 2 个 step，energy landscape 只能说明验证管线跑通，不能当作真实性能结论。正式比较时应使用更长训练后的 checkpoint，并在 held-out demos 上统计指标。
 
 先用最小数据和小训练步数确认：
 

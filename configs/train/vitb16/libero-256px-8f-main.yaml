@@ -1,0 +1,230 @@
+# LIBERO spatial 主训练配置，入口是 app/vjepa_droid。
+#
+# 这份配置用于在短 LIBERO 片段上训练动作条件 V-JEPA 预测器。
+# 当前数据链路直接读取 LIBERO HDF5，不需要先转成 DROID-like MP4 目录。
+
+# 训练 app 名称。app/main.py 会根据这个值分发到 app/vjepa_droid/train.py。
+app: vjepa_droid
+
+# 启动器/资源提示。主要给仓库里的启动脚本使用；本地单进程运行时通常仍然是
+# tasks_per_node=1，并且只使用一个可见 GPU。
+cpus_per_task: 4
+mem_per_gpu: 64G
+nodes: 1
+tasks_per_node: 1
+
+# 输出目录。训练会在这里写 latest.pt、e*.pt、params-pretrain.yaml 和 log_r0.csv。
+# 如果目录里已有兼容的 latest.pt，train.py 会自动续训；想干净重跑就换目录或删掉旧目录。
+folder: outputs/train/libero-vjepa21-vitb-ac-main
+
+data:
+  # 代码默认值是 "droid"。这里必须设成 "libero"，才会走 app/vjepa_droid/libero.py。
+  # 如果改成 "droid"，datasets 就必须指向 DROID-like trajectory 目录 CSV，而不是 LIBERO HDF5。
+  dataset_format: libero
+
+  # 当前值对 24GB GPU + ViT-B + 激活检查点比较保守。
+  # 调大可以提高吞吐，但激活和优化器显存大致会随 batch_size 线性增长。
+  batch_size: 1
+
+  # 输入帧进编码器前会 resize/crop 到 crop_size。train.py 默认是 256。
+  # 调大后 tokens_per_frame 会按平方增长：
+  # tokens_per_frame = (crop_size / patch_size) ** 2。
+  crop_size: 256
+
+  # LIBERO HDF5 路径 CSV。每行可以是：
+  #   /path/to/task_demo.hdf5
+  # 也可以指定某个 demo：
+  #   /path/to/task_demo.hdf5 demo_0
+  # 如果不写 demo key，数据读取器会把该 HDF5 里的所有 demo_N 都作为样本。
+  datasets:
+  - data/libero/libero_spatial_h5_paths.csv
+
+  # 每个训练样本抽多少帧。app/vjepa_droid/train.py 使用 max(dataset_fpcs)。
+  # 当前值下，LIBEROHDF5Dataset 返回：
+  #   frames:  transform 前 [8, H, W, 3]，transform 后 [3, 8, 256, 256]
+  #   states:  [8, 7]
+  #   actions: [7, 7]
+  # 调大可以提供更长时序上下文和更长自回归展开，但会增加显存/计算量，也要求 demo 有更长窗口。
+  dataset_fpcs:
+  - 8
+
+  # DROID MP4 数据读取器会用 fps 做视频采样；LIBERO HDF5 数据读取器当前不使用 fps。
+  # LIBERO 的时间间隔由下面的 libero_frame_stride 控制。
+  fps: 4
+
+  # LIBERO obs 里的相机 key。常用值：
+  #   agentview_rgb     外部视角相机，本配置默认值
+  #   eye_in_hand_rgb   腕部相机
+  # 数据读取器读取 obs/<libero_camera_key>，并会做一次垂直翻转，使方向与训练/可视化一致。
+  libero_camera_key: agentview_rgb
+
+  # LIBERO HDF5 帧索引空间里的时间 stride。代码默认值是 1。
+  # 例子：dataset_fpcs=8、stride=1 时，可能采样 indices [125..132]。
+  # 例子：dataset_fpcs=8、stride=2 时，可能采样 indices [118,120,...,132]。
+  # 调大会让相邻动作覆盖更长时间、更大位移，但动力学更难学，短 demo 的有效窗口也更少。
+  libero_frame_stride: 1
+
+  # DataLoader worker 数。0 表示在主进程里读 HDF5，最容易调试。
+  # 调大可能提高吞吐，但多个 HDF5 reader 会增加 I/O 压力，也会让异常更难定位。
+  num_workers: 0
+
+  # ViT patch size。ViT-B/16 期望 16；修改它必须保证和模型/检查点匹配，也会改变 tokens_per_frame。
+  patch_size: 16
+
+  # 只有 num_workers > 0 时才有意义。true 会跨 epoch 保留 worker，通常更快，
+  # 但也会更久地持有 HDF5/file 资源。
+  persistent_workers: false
+
+  # CUDA transfer 前是否 pin CPU memory。可能提高输入吞吐；但在 num_workers=0、batch_size=1 时收益通常很小。
+  pin_mem: false
+
+  # DROID 多视角选项；LIBERO 直读数据读取器只返回 libero_camera_key 选择的一路相机。
+  stereo_view: false
+
+  # 传给编码器/预测器构建逻辑的 tubelet size。
+  # 当前训练循环会把每个 LIBERO frame 重复成 2-frame tubelet；除非有明确实验目的，
+  # 否则保持和预训练检查点一致。
+  tubelet_size: 2
+
+data_aug:
+  # 机器人数据上的几何增强要谨慎：图像 crop/flip 不会同步作用到 robot states/actions。
+  # 这份配置保持视觉几何确定，便于调试和复现。
+  auto_augment: false
+  horizontal_flip: false
+  motion_shift: false
+
+  # [1.0, 1.0] 的 aspect ratio 和 scale 表示确定性 resize/crop 到 crop_size。
+  # 放宽范围会引入空间增强，但也可能裁掉关键物体。
+  random_resize_aspect_ratio:
+  - 1.0
+  - 1.0
+  random_resize_scale:
+  - 1.0
+  - 1.0
+
+  # 随机擦除概率。小机器人数据集和调试阶段建议保持 0.0。
+  reprob: 0.0
+
+loss:
+  # 在教师强制损失之外，额外训练多少步自回归预测器。
+  # 必须 <= dataset_fpcs。调大能训练更长自回归展开，但更难、更耗算力。
+  auto_steps: 2
+
+  # latent prediction error 的 Lp 指数。1.0 近似 L1，通常更稳健。
+  loss_exp: 1.0
+
+  # 计算损失前对目标/预测 latent 做 layer norm。
+  # 从预训练编码器微调时，这通常能降低 latent 尺度差异的影响。
+  normalize_reps: true
+
+  # 为兼容其它配置保留；app/vjepa_droid/train.py 当前没有使用 reg_coeff。
+  reg_coeff: 0.0
+
+meta:
+  # bfloat16 使用混合精度，在 Ampere+ GPU 上通常比 fp16 更不容易遇到 loss-scale 问题。
+  # 如果排查数值问题，可以改成 float32。
+  dtype: bfloat16
+
+  # app/vjepa_droid/train.py 当前不使用 eval_freq。
+  # 验证请单独运行 scripts/libero_vitb_ac_validate.py 或 scripts/libero_vitb_ac_eval_batch.py。
+  eval_freq: 100
+
+  # false 表示只从 pretrain_checkpoint 加载编码器，AC 预测器随机初始化。
+  # 只有当 checkpoint 里有结构兼容的预测器时才应设为 true。
+  load_predictor: false
+
+  # 预训练编码器检查点。本机 checkpoints/ 下已有这个文件。
+  pretrain_checkpoint: checkpoints/vjepa2_1_vitb_dist_vitG_384.pt
+
+  # 从 pretrain_checkpoint 取编码器权重时使用的 key。
+  # vjepa2_1 checkpoint 把 EMA 编码器存在 ema_encoder 下面。
+  context_encoder_key: ema_encoder
+  target_encoder_key: ema_encoder
+
+  # null 表示如果 folder/latest.pt 存在，train.py 会自动续训。
+  # 想强制从头训练，请删除输出目录或换一个新的 folder。
+  resume_checkpoint: null
+
+  # 除 latest.pt 外，每 N 个 epoch 额外保存 e{epoch}.pt。
+  # 调大可以减少磁盘写入；调小便于比较不同 epoch 的 checkpoint。
+  save_every_freq: 5
+
+  # numpy/torch 和 distributed sampler 的随机种子。
+  seed: 239
+
+  # 使用 PyTorch 缩放点积注意力。现代 GPU 上通常更快、更省显存；
+  # 如果排查注意力 kernel 问题，可以关掉。
+  use_sdpa: true
+
+model:
+  # 关闭 torch.compile，启动更快、报错栈更容易读。
+  # 打开后可能提升吞吐，但会有 compile warmup，也可能让调试更复杂。
+  compile_model: false
+
+  # ViT-B 编码器。需要和 checkpoint 以及显存预算匹配。
+  model_name: vit_base
+
+  # AC 预测器 transformer 的规模。更深/更大可能提升动力学建模能力，
+  # 但会增加显存和训练时间。
+  pred_depth: 12
+  pred_embed_dim: 384
+
+  # 因果预测器不能看未来帧 token。用于自回归展开/规划时建议保持 true。
+  pred_is_frame_causal: true
+  pred_num_heads: 12
+
+  # 底层 V-JEPA 代码使用的位置编码初始化选项。
+  uniform_power: true
+
+  # 激活检查点通过反向传播时重算激活来省显存。
+  # 24GB 卡建议开启；显存足够时关闭会更快。
+  use_activation_checkpointing: true
+
+  # LIBERO 直读数据读取器返回的是全 0 占位外参。
+  # 除非你给数据补了真实相机外参，否则保持 false。
+  use_extrinsics: false
+
+  # 预测器/编码器架构开关。除非做受控架构实验，否则保持和预训练设置一致。
+  use_pred_silu: false
+  use_rope: true
+  use_silu: false
+  wide_silu: true
+
+optimization:
+  # 余弦退火调度器的 epoch 长度。完整训练通常和 epochs 接近；
+  # 调短会让学习率更早衰减。
+  anneal: 20
+
+  # AdamW beta 参数。
+  betas:
+  - 0.9
+  - 0.999
+
+  # 编码器学习率倍率。0.1 表示让预训练视觉特征更稳，随机初始化的预测器学得更快。
+  enc_lr_scale: 0.1
+
+  # 训练 epoch 数。当前 LIBERO spatial 有 500 个 demo，batch_size=1 且 ipe=null 时，
+  # 每个 epoch 大约 500 个 iteration。
+  epochs: 20
+  eps: 1.0e-8
+
+  # 调度器的最终学习率和最终权重衰减。
+  final_lr: 0.0
+  final_weight_decay: 0.04
+
+  # 每个 epoch 的 iteration 数。null 表示 len(DataLoader)。
+  # 冒烟测试可以设小一点，比如 ipe: 2。
+  ipe: null
+
+  # 预测器的参考学习率。编码器实际学习率是 lr * enc_lr_scale。
+  lr: 0.0001
+
+  # 预热起始学习率。
+  start_lr: 0.00001
+
+  # 预热 epoch 数。小数据集上预热过长会让早期 checkpoint 欠训练；
+  # 1 是比较保守的完整训练默认值。
+  warmup: 1
+
+  # AdamW 初始 weight decay。
+  weight_decay: 0.04

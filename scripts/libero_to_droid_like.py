@@ -36,6 +36,8 @@ def _as_uint8_rgb(frames):
         if max_value <= 1.0:
             frames = frames * 255.0
         frames = np.clip(frames, 0, 255).astype(np.uint8)
+    # Keep the exported MP4 orientation consistent with the direct LIBERO loader.
+    frames = np.flip(frames, axis=1).copy()
     return frames
 
 

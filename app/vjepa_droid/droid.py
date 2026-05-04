@@ -70,6 +70,13 @@ def init_data(
         dataset, num_replicas=world_size, rank=rank, shuffle=True
     )
 
+    '''
+    DataLoader 输出：
+        clips: [B, C, T, H, W]
+        actions: [B, T-1, 7]
+        states: [B, T, 7]
+        extrinsics: [B, T, 6]
+    '''
     data_loader = torch.utils.data.DataLoader(
         dataset,
         collate_fn=collator,
@@ -80,6 +87,7 @@ def init_data(
         num_workers=num_workers,
         persistent_workers=(num_workers > 0) and persistent_workers,
     )
+    
 
     logger.info("VideoDataset unsupervised data loader created")
 
@@ -169,7 +177,7 @@ class DROIDVideoDataset(torch.utils.data.Dataset):
             trans = pose[:3]  # shape [3]
             theta = pose[3:6]  # euler angles, shape [3]
             Rot = Rotation.from_euler("xyz", theta, degrees=False).as_matrix()
-            T = np.eye(4)
+            T = np.eye(4, dtype=np.float32)
             T[:3, :3] = Rot
             T[:3, 3] = trans
             return T
@@ -188,7 +196,7 @@ class DROIDVideoDataset(torch.utils.data.Dataset):
             new_pose += [transform_to_pose(new_pose_transform)]
         new_pose = np.stack(new_pose, axis=0)
 
-        return np.concatenate([new_pose, gripper], axis=1)
+        return np.concatenate([new_pose, gripper], axis=1).astype(np.float32)
 
     def loadvideo_decord(self, path):
         # -- load metadata

@@ -414,6 +414,31 @@ indices:    [B, T_raw]
 - `T_model` 是应用 `frameskip` 后的 state/action 时间长度。
 - 当前配置中 `frameskip` 来自 `tubelet_size`。
 
+对当前 `app.vjepa_droid.train` 这条训练链路，更准确的“模型输入 contract”是：
+
+```text
+sample[0] = clips      -> [B, C, T, H, W]
+sample[1] = actions    -> [B, T-1, 7]
+sample[2] = states     -> [B, T, 7]
+sample[3] = extrinsics -> [B, T, 6]
+sample[4] = indices    -> [B, T] 或 [B, T_raw]
+```
+
+其中：
+
+- `actions` 的 7 维是 `[dx, dy, dz, droll, dpitch, dyaw, dgripper]`
+- `states` 的 7 维是 `[x, y, z, roll, pitch, yaw, gripper]`
+- `extrinsics` 的 6 维是 `[x, y, z, roll, pitch, yaw]`
+- `indices` 不参与模型 forward，只用于定位采样帧
+
+当前 predictor 真正消费的是：
+
+```text
+predictor(latent_tokens, actions, states, extrinsics)
+```
+
+但如果 `model.use_extrinsics: false`，则 `extrinsics` 虽然会随 batch 一起传入，predictor 内部不会使用它。
+
 ## 9. 推荐数据质量要求
 
 每条 trajectory 建议满足：

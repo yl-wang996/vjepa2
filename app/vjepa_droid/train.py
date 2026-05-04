@@ -396,7 +396,7 @@ def main(args, resume_preempt=False):
                 clips = sample[0].to(device, non_blocking=True)  # [B C T H W]
                 actions = sample[1].to(device, dtype=torch.float, non_blocking=True)  # [B T-1 7]
                 states = sample[2].to(device, dtype=torch.float, non_blocking=True)  # [B T 7]
-                extrinsics = sample[3].to(device, dtype=torch.float, non_blocking=True)  # [B T 7]
+                extrinsics = sample[3].to(device, dtype=torch.float, non_blocking=True)  # [B T 6]
                 return (clips, actions, states, extrinsics)
 
             clips, actions, states, extrinsics = load_clips()

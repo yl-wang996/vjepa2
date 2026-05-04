@@ -63,6 +63,8 @@ outputs/train/libero-vjepa21-vitb-ac-debug/params-pretrain.yaml
 6. 清理 outputs/train/libero-vjepa21-vitb-ac-debug
 7. 运行 configs/train/vitb16/libero-256px-8f-debug.yaml
 8. 检查 latest.pt、log_r0.csv、loss 和显存日志
+9. 运行 scripts/libero_vitb_ac_validate.py
+10. 检查 validation 下的 PNG 和 metrics.json
 ```
 
 ## 路线解释
@@ -262,6 +264,14 @@ obs/gripper_states 或 actions[:, -1] -> gripper state
 dummy zeros [T, 6]                 -> camera extrinsics
 ```
 
+读取时会额外做一次：
+
+```text
+vertical flip (flipud)
+```
+
+原因是当前 LIBERO 原始 RGB 帧方向与我们期望的训练/可视化方向相反。
+
 返回给训练 loop 的 tuple：
 
 ```text
@@ -446,6 +456,62 @@ batch_size 1
 encoder keys 148
 predictor keys 156
 ```
+
+## 离线验证和 Energy Landscape
+
+训练产物确认后，运行：
+
+```bash
+PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
+.venv/bin/python scripts/libero_vitb_ac_validate.py \
+  --config configs/train/vitb16/libero-256px-8f-debug.yaml \
+  --checkpoint outputs/train/libero-vjepa21-vitb-ac-debug/latest.pt \
+  --output-dir outputs/validation/libero-vjepa21-vitb-ac-debug \
+  --device cuda:0 \
+  --sample-index 0 \
+  --seed 0 \
+  --energy-nsamples 21 \
+  --energy-grid-size 0.05
+```
+
+这个脚本会：
+
+```text
+1. 加载训练好的 latest.pt
+2. 从 LIBERO HDF5 中取一段 clip
+3. 用 target encoder 计算 frame latents
+4. 用 AC predictor 计算 ground-truth action 的 one-step latent prediction energy
+5. 在 action 的 dx/dz 平面生成 energy landscape
+```
+
+预期日志：
+
+```text
+Loaded checkpoint: path=outputs/train/libero-vjepa21-vitb-ac-debug/latest.pt; epoch=1; loss=1.796...
+Validation sample: ...demo.hdf5:demo_0 indices=[...]
+Latents: h=(1, 2048, 768) tokens_per_frame=256
+Energy: gt=...; center_grid=...; best_grid=...; better_than_center=.../441
+Saved: outputs/validation/libero-vjepa21-vitb-ac-debug/libero_clip_frames.png ...
+```
+
+产物：
+
+```text
+outputs/validation/libero-vjepa21-vitb-ac-debug/libero_clip_frames.png
+outputs/validation/libero-vjepa21-vitb-ac-debug/energy_landscape_dx_dz.png
+outputs/validation/libero-vjepa21-vitb-ac-debug/metrics.json
+```
+
+已验证的一次结果：
+
+```text
+gt_energy: 0.8542167544364929
+center_grid_energy: 0.8541468381881714
+best_grid_energy: 0.8541215658187866
+grid_actions_better_than_center: 199 / 441
+```
+
+注意：当前 checkpoint 只训练了 2 个 step，这里的 energy landscape 只能说明验证链路跑通，不代表模型已经学到可靠策略。正式判断效果时，应换成长训练 checkpoint，并在 held-out demos 上统计。
 
 ## 常见问题
 
